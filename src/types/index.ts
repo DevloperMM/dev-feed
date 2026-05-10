@@ -9,11 +9,7 @@ export interface ChatRequest {
   messages: ChatMessage[];
 }
 
-export interface ToolFn<A = any, T = any> {
-  (input: { userMessage: string; toolArgs: A }): Promise<T>
-}
-
-export type Source = "hn" | "reddit" | "github";
+export type Source = "HN" | "REDDIT" | "GITHUB";
 
 export interface RawStory {
   source: Source;
