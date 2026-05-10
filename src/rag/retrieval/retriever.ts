@@ -1,7 +1,7 @@
 import { searchVector } from "./searcher";
 import { rerankResults } from "./reranker";
 import { fetchStoryById } from "../../db/stories";
-import type { RetrievedChunk, StoryWithTopics } from "../../types";
+import type { StoryWithTopics } from "../../types";
 
 export interface RetrievalResult {
   context: string;

@@ -7,6 +7,6 @@ import type { RawStory } from "../../../types";
 // - Use token in Authorization: Bearer <token> header
 // - Fetch from r/programming hot posts
 
-export async function fetchRedditStories(limit = 30): Promise<RawStory[]> {
+export async function fetchRedditStories(_limit = 30): Promise<RawStory[]> {
   throw new Error("Not implemented: Reddit OAuth2 required");
 }

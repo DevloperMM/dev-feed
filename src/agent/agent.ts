@@ -1,5 +1,6 @@
 import { openai, OPENAI_CHAT_MODEL } from "../config/openai";
 import type { ChatMessage } from "../types";
+import type { ChatCompletionMessageParam, ChatCompletionTool } from "openai/resources/chat/completions";
 import {
   searchKnowledgeBase,
   searchKnowledgeBaseSchema,
@@ -23,20 +24,20 @@ const tools = [
 ];
 
 export async function runAgent(messages: ChatMessage[]): Promise<ReadableStream<Uint8Array>> {
-  const conversation: ChatMessage[] = [...messages];
+  const conversation: ChatCompletionMessageParam[] = [...messages] as ChatCompletionMessageParam[];
 
   for (let i = 0; i < MAX_ITERATIONS; i++) {
     const response = await openai.chat.completions.create({
       model: OPENAI_CHAT_MODEL,
-      messages: conversation as any,
-      tools: tools.map((t) => t.schema) as any,
+      messages: conversation,
+      tools: tools.map((t) => t.schema as unknown as ChatCompletionTool),
       tool_choice: "auto",
     });
 
     const choice = response.choices[0];
     const assistantMessage = choice.message;
 
-    conversation.push(assistantMessage as ChatMessage);
+    conversation.push(assistantMessage);
 
     if (!assistantMessage.tool_calls || assistantMessage.tool_calls.length === 0) {
       // No tool calls - stream final answer
@@ -46,7 +47,9 @@ export async function runAgent(messages: ChatMessage[]): Promise<ReadableStream<
     }
 
     // Execute tool calls
-    for (const toolCall of assistantMessage.tool_calls as any[]) {
+    for (const toolCall of assistantMessage.tool_calls) {
+      if (toolCall.type !== "function") continue;
+
       const tool = tools.find((t) => t.schema.function.name === toolCall.function.name);
       if (!tool) continue;
 
@@ -57,7 +60,7 @@ export async function runAgent(messages: ChatMessage[]): Promise<ReadableStream<
         role: "tool",
         content: JSON.stringify(result),
         tool_call_id: toolCall.id,
-      } as ChatMessage);
+      });
     }
   }
 

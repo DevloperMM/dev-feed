@@ -9,6 +9,8 @@ import { upsertStory, fetchUnembeddedStories, markStoriesEmbedded } from "../../
 import { upsertTopic, linkStoryToTopic } from "../../db/topics";
 import type { RawStory } from "../../types";
 
+import { Story } from "../../../prisma/generated/prisma/client";
+
 export interface IngestResult {
   fetched: number;
   inserted: number;
@@ -22,7 +24,9 @@ const TOPIC_CACHE_KEYS = [
   "feed:github:page:1",
 ];
 
-async function extractTopics(stories: RawStory[]): Promise<void> {
+async function extractTopics(stories: Story[]): Promise<void> {
+  if (stories.length === 0) return;
+
   const prompt = `Extract 1-3 topic tags from these stories. Return JSON: { "topics": ["topic1", "topic2"] }
 Stories:
 ${stories.map((s, i) => `${i + 1}. ${s.title}`).join("\n")}`;
@@ -37,14 +41,17 @@ ${stories.map((s, i) => `${i + 1}. ${s.title}`).join("\n")}`;
   if (!content) return;
 
   try {
-    const data = JSON.parse(content) as { topics: string[] };
+    // Strip markdown code blocks if present
+    const jsonString = content.replace(/```json|```/g, "").trim();
+    const data = JSON.parse(jsonString) as { topics: string[] };
     for (const story of stories) {
       for (const topicName of data.topics.slice(0, 3)) {
         const topic = await upsertTopic(topicName.trim());
-        await linkStoryToTopic(story.externalId, topic.id);
+        await linkStoryToTopic(story.id, topic.id);
       }
     }
-  } catch {
+  } catch (error) {
+    console.warn("Failed to parse topics JSON:", error);
     // Skip topic extraction on parse failure
   }
 }
@@ -62,18 +69,20 @@ export async function runIngest(): Promise<IngestResult> {
     .flatMap((r) => r.value);
 
   // 2. Upsert stories to Postgres (dedup by source + externalId)
+  const savedStories: Story[] = [];
   let inserted = 0;
   for (const story of allStories) {
     try {
-      await upsertStory(story);
+      const saved = await upsertStory(story);
+      savedStories.push(saved as unknown as Story);
       inserted++;
     } catch {
-      // Skip duplicates
+      // Skip errors
     }
   }
 
   // 3. Extract topics for new stories
-  await extractTopics(allStories);
+  await extractTopics(savedStories);
 
   // 4. Fetch unembedded stories
   const unembedded = await fetchUnembeddedStories();

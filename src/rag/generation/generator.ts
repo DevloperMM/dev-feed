@@ -31,8 +31,9 @@ export function streamAnswer(query: string, context: string): ReadableStream<Uin
     async start(controller) {
       try {
         for await (const chunk of generateAnswer(query, context)) {
-          controller.enqueue(encoder.encode(chunk));
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(chunk)}\n\n`));
         }
+        controller.enqueue(encoder.encode("data: [DONE]\n\n"));
         controller.close();
       } catch (error) {
         controller.error(error);
