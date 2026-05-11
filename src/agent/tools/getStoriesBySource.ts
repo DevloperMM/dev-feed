@@ -1,51 +1,37 @@
-import { fetchStories } from "../../db/stories";
-import type { Source } from "../../types";
+import { z } from 'zod'
+import type { ToolFn } from '../../types'
+import { fetchStories } from '../../db/stories'
 
-export const getStoriesBySourceSchema = {
-  type: "function",
-  function: {
-    name: "getStoriesBySource",
-    description: "Get stories from a specific source (Hacker News, Reddit, or GitHub). Use this when the user wants stories from a particular platform.",
-    parameters: {
-      type: "object",
-      properties: {
-        source: {
-          type: "string",
-          enum: ["HN", "REDDIT", "GITHUB"],
-          description: "The source to filter by",
-        },
-        page: {
-          type: "number",
-          description: "Page number (default: 1)",
-        },
-        limit: {
-          type: "number",
-          description: "Number of stories per page (default: 10)",
-        },
-      },
-      required: ["source"],
-    },
-  },
-};
+export const getStoriesBySourceDefinition = {
+  name: 'getStoriesBySource',
+  description: 'Get stories from a specific source (HN, Reddit, or GitHub)',
+  parameters: z.object({
+    source: z.enum(['HN', 'REDDIT', 'GITHUB']).describe('The source to filter by'),
+    page: z.number().nullable().describe('Page number (default: 1)'),
+    limit: z.number().nullable().describe('Number of stories per page (default: 10)'),
+  }),
+}
 
-export async function getStoriesBySourceTool(args: {
-  source: "HN" | "REDDIT" | "GITHUB";
-  page?: number;
-  limit?: number;
-}) {
+type Args = z.infer<typeof getStoriesBySourceDefinition.parameters>
+
+export const getStoriesBySource: ToolFn<Args, string> = async ({ toolArgs }) => {
+  const sourceMap: Record<string, 'HN' | 'REDDIT' | 'GITHUB'> = {
+    HN: 'HN',
+    REDDIT: 'REDDIT',
+    GITHUB: 'GITHUB',
+  }
+
   const stories = await fetchStories({
-    source: args.source.toLowerCase() as Source,
-    page: args.page ?? 1,
-    limit: args.limit ?? 10,
-  });
+    source: sourceMap[toolArgs.source],
+    page: toolArgs.page ?? 1,
+    limit: toolArgs.limit ?? 10,
+  })
 
-  return {
-    success: true,
-    stories: stories.map((s) => ({
-      title: s.title,
-      url: s.url,
-      source: s.source,
-      publishedAt: s.publishedAt,
-    })),
-  };
+  if (stories.length === 0) {
+    return 'No stories found for this source.'
+  }
+
+  return stories
+    .map((s) => `[${s.source}] ${s.title} - ${s.url ?? 'no URL'}`)
+    .join('\n')
 }

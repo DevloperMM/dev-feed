@@ -13,9 +13,7 @@ interface HNStory {
 }
 
 export async function fetchHNStories(limit = 30): Promise<RawStory[]> {
-  const response = await fetch(`${HN_API_URL}/topstories.json`, {
-    signal: AbortSignal.timeout(10_000),
-  });
+  const response = await fetch(`${HN_API_URL}/topstories.json`)
 
   if (!response.ok) {
     throw new Error(`HN API failed: ${response.status}`);
@@ -37,13 +35,13 @@ export async function fetchHNStories(limit = 30): Promise<RawStory[]> {
       title: r.value.title,
       author: r.value.by,
       publishedAt: new Date(r.value.time * 1000),
+      score: r.value.score,
+      commentCount: r.value.descendants ?? 0,
     })) as RawStory[];
 }
 
 async function fetchHNStory(id: number): Promise<HNStory> {
-  const response = await fetch(`${HN_API_URL}/item/${id}.json`, {
-    signal: AbortSignal.timeout(10_000),
-  });
+  const response = await fetch(`${HN_API_URL}/item/${id}.json`);
 
   if (!response.ok) {
     throw new Error(`HN story ${id} failed: ${response.status}`);

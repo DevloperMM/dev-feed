@@ -1,37 +1,21 @@
-import { retrieve } from "../../rag/retrieval/retriever";
+import { z } from 'zod'
+import type { ToolFn } from '../../types'
+import { retrieve } from '../../rag/retrieval/retriever'
 
-export const searchKnowledgeBaseSchema = {
-  type: "function",
-  function: {
-    name: "searchKnowledgeBase",
-    description: "Search the tech news knowledge base for stories matching a query. Use this when the user asks about specific topics, technologies, or news.",
-    parameters: {
-      type: "object",
-      properties: {
-        query: {
-          type: "string",
-          description: "The search query (e.g., 'Rust programming', 'AI news', 'TypeScript updates')",
-        },
-      },
-      required: ["query"],
-    },
-  },
-};
+export const searchKnowledgeBaseDefinition = {
+  name: 'searchKnowledgeBase',
+  description: 'Search the TechPulse knowledge base for tech discussions matching a query',
+  parameters: z.object({
+    query: z.string().describe('The search query'),
+  }),
+}
 
-export async function searchKnowledgeBase(args: { query: string }) {
-  const { context, stories } = await retrieve(args.query, 5);
+type Args = z.infer<typeof searchKnowledgeBaseDefinition.parameters>
 
+export const searchKnowledgeBase: ToolFn<Args, string> = async ({ toolArgs }) => {
+  const { context, stories } = await retrieve(toolArgs.query, 5)
   if (stories.length === 0) {
-    return { success: false, message: "No matching stories found." };
+    return 'No matching stories found.'
   }
-
-  return {
-    success: true,
-    context,
-    stories: stories.map((s) => ({
-      title: s.title,
-      source: s.source,
-      url: s.url,
-    })),
-  };
+  return context
 }

@@ -9,10 +9,10 @@ type Message = {
 };
 
 const STARTER_PROMPTS = [
-  "What's trending on GitHub today?",
-  "Tell me about the latest AI news",
-  "Search for recent Prisma updates",
-  "Summarize top stories from Hacker News"
+  "What's trending on HN today?",
+  "Any interesting projects this week?",
+  "What are people discussing about AI?",
+  "Any comments for MCP?"
 ];
 
 export default function ChatInterface() {
@@ -66,19 +66,12 @@ export default function ChatInterface() {
 
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split('\n');
-        
-        // Keep the last partial line in the buffer
         buffer = lines.pop() || '';
 
         for (const line of lines) {
-          const trimmedLine = line.trim();
-          if (trimmedLine.startsWith('data: ')) {
-            const data = trimmedLine.slice(6).trim();
-            if (data === '[DONE]') break;
-            
+          if (line.startsWith('data: ') && line !== 'data: [DONE]') {
             try {
-              // Parse JSON chunk as sent by generator.ts
-              const content = JSON.parse(data);
+              const content = JSON.parse(line.replace('data: ', ''));
               
               setMessages(prev => {
                 const updated = [...prev];
@@ -93,7 +86,7 @@ export default function ChatInterface() {
                 return updated;
               });
             } catch (e) {
-              console.error('Error parsing chunk:', e);
+              console.error('Error parsing SSE chunk:', e);
             }
           }
         }
@@ -101,14 +94,6 @@ export default function ChatInterface() {
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : 'Something went wrong';
       setError(errorMessage);
-      setMessages(prev => {
-        const updated = [...prev];
-        updated[updated.length - 1] = {
-          ...updated[updated.length - 1],
-          content: 'Error: ' + errorMessage
-        };
-        return updated;
-      });
     } finally {
       setStreaming(false);
     }
@@ -156,7 +141,15 @@ export default function ChatInterface() {
             >
               <div className="prose prose-invert prose-sm max-w-none">
                 {m.role === 'assistant' ? (
-                  <ReactMarkdown>{m.content}</ReactMarkdown>
+                  m.content === '' && streaming ? (
+                    <div className="flex space-x-1 py-2">
+                      <div className="w-1.5 h-1.5 bg-zinc-500 rounded-full animate-bounce [animation-delay:-0.3s]"></div>
+                      <div className="w-1.5 h-1.5 bg-zinc-500 rounded-full animate-bounce [animation-delay:-0.15s]"></div>
+                      <div className="w-1.5 h-1.5 bg-zinc-500 rounded-full animate-bounce"></div>
+                    </div>
+                  ) : (
+                    <ReactMarkdown>{m.content}</ReactMarkdown>
+                  )
                 ) : (
                   <p className="whitespace-pre-wrap">{m.content}</p>
                 )}

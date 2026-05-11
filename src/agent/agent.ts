@@ -1,70 +1,40 @@
-import { openai, OPENAI_CHAT_MODEL } from "../config/openai";
-import type { ChatMessage } from "../types";
-import type { ChatCompletionMessageParam, ChatCompletionTool } from "openai/resources/chat/completions";
-import {
-  searchKnowledgeBase,
-  searchKnowledgeBaseSchema,
-} from "./tools/searchKnowledgeBase";
-import {
-  getTrendingTopicsTool,
-  getTrendingTopicsSchema,
-} from "./tools/getTrendingTopics";
-import {
-  getStoriesBySourceTool,
-  getStoriesBySourceSchema,
-} from "./tools/getStoriesBySource";
-import { streamAnswer } from "../rag/generation/generator";
+import type { ChatCompletion } from 'openai/resources/chat/completions'
+import { runLLM } from './llm'
+import { runTool } from './toolRunner'
+import { searchKnowledgeBaseDefinition } from './tools/searchKnowledgeBase'
+import { getTrendingTopicsDefinition } from './tools/getTrendingTopics'
+import { getStoriesBySourceDefinition } from './tools/getStoriesBySource'
+import type { AIMessage } from '../types'
 
-const MAX_ITERATIONS = 5;
+export const runAgent = async (messages: AIMessage[]) => {
+  const tools = [
+    searchKnowledgeBaseDefinition,
+    getTrendingTopicsDefinition,
+    getStoriesBySourceDefinition,
+  ]
 
-const tools = [
-  { schema: searchKnowledgeBaseSchema, execute: searchKnowledgeBase },
-  { schema: getTrendingTopicsSchema, execute: getTrendingTopicsTool },
-  { schema: getStoriesBySourceSchema, execute: getStoriesBySourceTool },
-];
+  const history = [...messages]
 
-export async function runAgent(messages: ChatMessage[]): Promise<ReadableStream<Uint8Array>> {
-  const conversation: ChatCompletionMessageParam[] = [...messages] as ChatCompletionMessageParam[];
-
-  for (let i = 0; i < MAX_ITERATIONS; i++) {
-    const response = await openai.chat.completions.create({
-      model: OPENAI_CHAT_MODEL,
-      messages: conversation,
-      tools: tools.map((t) => t.schema as unknown as ChatCompletionTool),
-      tool_choice: "auto",
-    });
-
-    const choice = response.choices[0];
-    const assistantMessage = choice.message;
-
-    conversation.push(assistantMessage);
-
-    if (!assistantMessage.tool_calls || assistantMessage.tool_calls.length === 0) {
-      // No tool calls - stream final answer
-      const lastMessage = messages[messages.length - 1].content as string;
-      const context = assistantMessage.content || "";
-      return streamAnswer(lastMessage, context);
+  for (let step = 0; step < 10; step++) {
+    const response = await runLLM({ messages: history, tools }) as ChatCompletion
+    const message = response.choices[0].message
+    
+    if (message.tool_calls && message.tool_calls.length > 0) {
+      history.push(message)
+      for (const toolCall of message.tool_calls) {
+        const toolResponse = await runTool(toolCall, messages[messages.length - 1].content as string)
+        history.push({ 
+          role: 'tool', 
+          tool_call_id: toolCall.id, 
+          content: toolResponse 
+        })
+      }
+      continue
     }
 
-    // Execute tool calls
-    for (const toolCall of assistantMessage.tool_calls) {
-      if (toolCall.type !== "function") continue;
-
-      const tool = tools.find((t) => t.schema.function.name === toolCall.function.name);
-      if (!tool) continue;
-
-      const args = JSON.parse(toolCall.function.arguments);
-      const result = await tool.execute(args);
-
-      conversation.push({
-        role: "tool",
-        content: JSON.stringify(result),
-        tool_call_id: toolCall.id,
-      });
-    }
+    // No tool calls, stream the final response
+    return runLLM({ messages: history, stream: true })
   }
 
-  // Max iterations reached - return final response
-  const lastUserMessage = messages[messages.length - 1].content as string;
-  return streamAnswer(lastUserMessage, "Maximum tool iterations reached.");
+  return runLLM({ messages: history, stream: true })
 }

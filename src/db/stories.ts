@@ -13,6 +13,8 @@ export async function upsertStory(story: RawStory) {
       url: story.url,
       title: story.title,
       author: story.author ?? null,
+      score: story.score,
+      commentCount: story.commentCount,
       fetchedAt: story.publishedAt,
     },
     create: {
@@ -21,6 +23,8 @@ export async function upsertStory(story: RawStory) {
       title: story.title,
       url: story.url,
       author: story.author ?? null,
+      score: story.score,
+      commentCount: story.commentCount,
       fetchedAt: story.publishedAt,
     },
   });
@@ -50,10 +54,10 @@ export async function fetchStories(options: {
     ...s,
     publishedAt: s.fetchedAt,
     topics: s.topics.map((t) => t.topic),
-  })) as unknown as StoryWithTopics[];
+  }));
 }
 
-export async function fetchStoryById(id: string) {
+export async function fetchStoryById(id: string): Promise<StoryWithTopics | null> {
   const story = await prisma.story.findUnique({
     where: { id },
     include: {
@@ -69,7 +73,7 @@ export async function fetchStoryById(id: string) {
     ...story,
     publishedAt: story.fetchedAt,
     topics: story.topics.map((t) => t.topic),
-  } as unknown as StoryWithTopics;
+  };
 }
 
 export async function markStoriesEmbedded(ids: string[]) {

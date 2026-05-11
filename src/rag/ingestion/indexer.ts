@@ -1,10 +1,10 @@
 import { openai } from "../../config/openai";
 import { redis } from "../../config/redis";
+import { vector } from "../../config/vector";
 import { fetchHNStories } from "./sources/hn";
 import { fetchRedditStories } from "./sources/reddit";
 import { fetchGitHubStories } from "./sources/github";
-import { chunkStories } from "./chunker";
-import { embedChunks } from "./embedder";
+import { chunkStories, type Chunk } from "./chunker";
 import { upsertStory, fetchUnembeddedStories, markStoriesEmbedded } from "../../db/stories";
 import { upsertTopic, linkStoryToTopic } from "../../db/topics";
 import type { RawStory } from "../../types";
@@ -41,7 +41,6 @@ ${stories.map((s, i) => `${i + 1}. ${s.title}`).join("\n")}`;
   if (!content) return;
 
   try {
-    // Strip markdown code blocks if present
     const jsonString = content.replace(/```json|```/g, "").trim();
     const data = JSON.parse(jsonString) as { topics: string[] };
     for (const story of stories) {
@@ -52,23 +51,36 @@ ${stories.map((s, i) => `${i + 1}. ${s.title}`).join("\n")}`;
     }
   } catch (error) {
     console.warn("Failed to parse topics JSON:", error);
-    // Skip topic extraction on parse failure
   }
 }
 
+async function embedChunks(chunks: Chunk[]): Promise<void> {
+  // Upstash Vector handles embedding automatically via data: field
+  await Promise.all(
+    chunks.map((chunk) =>
+      vector.upsert({
+        id: `story:${chunk.storyId}`,
+        data: chunk.text,
+        metadata: {
+          storyId: chunk.storyId,
+          chunkIndex: chunk.index,
+        },
+      })
+    )
+  );
+}
+
 export async function runIngest(): Promise<IngestResult> {
-  // 1. Fetch all sources in parallel
   const results = await Promise.allSettled([
     fetchHNStories(30),
-    fetchRedditStories(30).catch(() => []),
-    fetchGitHubStories(30).catch(() => []),
+    fetchRedditStories().catch(() => []),
+    fetchGitHubStories().catch(() => []),
   ]);
 
   const allStories: RawStory[] = results
     .filter((r): r is PromiseFulfilledResult<RawStory[]> => r.status === "fulfilled")
     .flatMap((r) => r.value);
 
-  // 2. Upsert stories to Postgres (dedup by source + externalId)
   const savedStories: Story[] = [];
   let inserted = 0;
   for (const story of allStories) {
@@ -81,17 +93,14 @@ export async function runIngest(): Promise<IngestResult> {
     }
   }
 
-  // 3. Extract topics for new stories
   await extractTopics(savedStories);
 
-  // 4. Fetch unembedded stories
   const unembedded = await fetchUnembeddedStories();
 
   if (unembedded.length === 0) {
     return { fetched: allStories.length, inserted, embedded: 0 };
   }
 
-  // 5. Chunk + embed to Upstash Vector (handles embedding automatically)
   const rawStories = unembedded.map((s) => ({
     source: s.source as RawStory["source"],
     externalId: s.id,
@@ -103,11 +112,9 @@ export async function runIngest(): Promise<IngestResult> {
   const chunks = chunkStories(rawStories as RawStory[]);
   await embedChunks(chunks);
 
-  // 6. Mark as embedded
   const ids = unembedded.map((s) => s.id);
   await markStoriesEmbedded(ids);
 
-  // 7. Invalidate Redis feed cache
   await Promise.all(TOPIC_CACHE_KEYS.map((key) => redis.del(key)));
 
   return { fetched: allStories.length, inserted, embedded: ids.length };
